@@ -65,7 +65,7 @@
     "karma-jasmine": "^1.1.2",
     "karma-jasmine-html-reporter": "^0.2.2",
     "ncp": "^2.0.0",
-    "node-sass": "^4.9.2",
+    "node-sass": "^4.13.1",
     "protractor": "~5.3.0",
     "rmdir-cli": "^2.0.6",
     "ts-node": "~5.0.1",
