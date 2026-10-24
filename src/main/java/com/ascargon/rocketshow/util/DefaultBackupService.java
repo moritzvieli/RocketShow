@@ -86,10 +86,28 @@ public class DefaultBackupService implements BackupService {
         chunkedFileUploadService.handleChunk(inputStream, backupFile);
     }
 
+    // Make sure the uploaded backup can be unpacked before anything gets deleted. A broken backup (e.g. an
+    // incomplete upload) would otherwise delete all data and restore nothing.
+    private void checkBackupFile() throws Exception {
+        ShellManager shellManager = new ShellManager(new String[]{"tar", "-tzf", backupFile.getPath()});
+
+        // Read the listed files, so tar can't block on a full output buffer
+        shellManager.getProcess().getInputStream().transferTo(OutputStream.nullOutputStream());
+        int exitCode = shellManager.getProcess().waitFor();
+        shellManager.close();
+
+        if (exitCode != 0) {
+            deleteBackupFile();
+            throw new Exception("The backup file is broken and could not be restored");
+        }
+    }
+
     @Override
     public void restoreFinish() throws Exception {
         // automatic restore only works linux-based environments
         logger.info("Start restoring backup...");
+
+        checkBackupFile();
 
         String basePath = settingsService.getSettings().getBasePath();
 
