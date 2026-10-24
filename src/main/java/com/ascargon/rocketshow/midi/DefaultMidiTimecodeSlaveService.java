@@ -20,6 +20,7 @@ import javax.sound.midi.MidiMessage;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,6 +48,11 @@ public class DefaultMidiTimecodeSlaveService implements MidiTimecodeSlaveService
     // timecode positions arrive (one every two frames), so the media correction stays responsive.
     private final static long CONTROL_PERIOD_MILLIS = 20;
 
+    // How often the setting is re-checked while this device is not a timecode slave at all. The
+    // control loop has nothing to do then, and a device that sits idle for hours should not be woken
+    // 50 times a second for it.
+    private final static long IDLE_PERIOD_MILLIS = 1_000;
+
     private final SettingsService settingsService;
     private final CompositionService compositionService;
     private final SetService setService;
@@ -61,8 +67,9 @@ public class DefaultMidiTimecodeSlaveService implements MidiTimecodeSlaveService
     private final ExecutorService transportExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean transportBusy = new AtomicBoolean(false);
 
-    // Is the slave currently switched on (the setting is active)?
-    private boolean active = false;
+    // Is the slave currently switched on (the setting is active)? Also paces the control loop, and
+    // is read by isLocked() from other threads.
+    private volatile boolean active = false;
 
     // Is the master currently rolling and the player following it?
     private boolean rolling = false;
@@ -80,7 +87,32 @@ public class DefaultMidiTimecodeSlaveService implements MidiTimecodeSlaveService
 
     @PostConstruct
     public void init() {
-        controlScheduler.scheduleAtFixedRate(this::tick, CONTROL_PERIOD_MILLIS, CONTROL_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
+        scheduleNextTick();
+    }
+
+    /**
+     * Run the control loop at its own pace instead of at a fixed rate: fast enough to correct the
+     * media while a timecode is being followed, and barely at all while it is switched off.
+     */
+    private void scheduleNextTick() {
+        if (controlScheduler.isShutdown()) {
+            return;
+        }
+
+        try {
+            controlScheduler.schedule(this::runTick, active ? CONTROL_PERIOD_MILLIS : IDLE_PERIOD_MILLIS,
+                    TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException e) {
+            // Shutting down
+        }
+    }
+
+    private void runTick() {
+        try {
+            tick();
+        } finally {
+            scheduleNextTick();
+        }
     }
 
     @Override
