@@ -52,7 +52,7 @@ public class DefaultUpdateService implements UpdateService {
             updateState = new UpdateState();
         } else {
             if (UpdateStep.REBOOTING.equals(updateState.getStep())) {
-                if (raucService.getCurrentSlot().equals(updateState.getOriginalRaucSlot())) {
+                if (isOriginalSlot()) {
                     // We booted back into the original slot -> watchdog failed and falled back
                     // to the original slot
                     error("Fell back to original slot due to Watchdog failure");
@@ -73,6 +73,24 @@ public class DefaultUpdateService implements UpdateService {
                 // resumed, so mark the update as failed instead of waiting forever.
                 error("Update was interrupted during installation.");
             }
+        }
+    }
+
+    // Whether we run in the slot the update was started from (e.g. the new slot did not come up and the device
+    // fell back). Updates started by older versions did not store the original slot, so the running version is
+    // compared as well.
+    private boolean isOriginalSlot() {
+        String currentSlot = raucService.getCurrentSlot();
+        if (currentSlot != null && currentSlot.equals(updateState.getOriginalRaucSlot())) {
+            return true;
+        }
+
+        try {
+            String currentVersion = versionService.getCurrentVersionInfo().getVersion();
+            return currentVersion != null && currentVersion.equals(updateState.getUpdatingFromVersion());
+        } catch (Exception e) {
+            logger.error("Could not read the current version", e);
+            return false;
         }
     }
 
@@ -163,10 +181,11 @@ public class DefaultUpdateService implements UpdateService {
         VersionInfo remoteVersionInfo = versionService.getRemoteVersionInfo(testBranch);
         String currentVersion = versionService.getCurrentVersionInfo().getVersion();
         String newVersion = remoteVersionInfo.getVersion();
+        String currentSlot = raucService.getCurrentSlot();
 
         logger.info("Current version: {}", currentVersion);
         logger.info("New version: {}", newVersion);
-        logger.info("Current RAUC slot: {}", raucService.getCurrentSlot());
+        logger.info("Current RAUC slot: {}", currentSlot);
 
         if (newVersion.equals(currentVersion)) {
             error("New version is equal to the currently installed version");
@@ -176,6 +195,7 @@ public class DefaultUpdateService implements UpdateService {
         updateState.setStep(UpdateStep.UPDATING);
         updateState.setError(null);
         updateState.setUpdatingFromVersion(currentVersion);
+        updateState.setOriginalRaucSlot(currentSlot);
         updateState.setProgressPercentage(0);
         sendAndSave(updateState);
 
