@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<composition>
+    <durationMillis>242000</durationMillis>
+    <fileList>
+        <audioFile>
+            <active>true</active>
+            <durationMillis>242000</durationMillis>
+            <loop>false</loop>
+            <name>head_smashed_far_away_click.wav</name>
+            <offsetMillis>0</offsetMillis>
+            <type>AUDIO</type>
+            <outputBus>My audio bus 1</outputBus>
+        </audioFile>
+        <audioFile>
+            <active>true</active>
+            <durationMillis>242000</durationMillis>
+            <loop>false</loop>
+            <name>head_smashed_far_away.wav</name>
+            <offsetMillis>0</offsetMillis>
+            <type>AUDIO</type>
+            <outputBus>My audio bus 1</outputBus>
+        </audioFile>
+        <midiFile>
+            <active>true</active>
+            <durationMillis>72858</durationMillis>
+            <loop>false</loop>
+            <name>light_example.mid</name>
+            <offsetMillis>0</offsetMillis>
+            <type>MIDI</type>
+            <midiRoutingList>
+                <midiRouting>
+                    <midi2LightingMapping>
+                        <mappingType>SIMPLE</mappingType>
+                    </midi2LightingMapping>
+                    <midiDestination>LIGHTING</midiDestination>
+                    <midiMapping>
+                        <channelOffset>0</channelOffset>
+                        <noteOffset>0</noteOffset>
+                        <overrideParent>false</overrideParent>
+                    </midiMapping>
+                    <remoteDeviceList/>
+                </midiRouting>
+            </midiRoutingList>
+        </midiFile>
+        <videoFile>
+            <active>true</active>
+            <durationMillis>31000</durationMillis>
+            <loop>false</loop>
+            <name>clouds.mp4</name>
+            <offsetMillis>0</offsetMillis>
+            <type>VIDEO</type>
+        </videoFile>
+    </fileList>
+    <name>Example composition</name>
+</composition>
