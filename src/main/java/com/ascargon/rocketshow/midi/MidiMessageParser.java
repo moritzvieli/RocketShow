@@ -43,9 +43,16 @@ public class MidiMessageParser {
     public Optional<MidiMessage> offerByte(byte b) throws InvalidMidiDataException {
         int ub = b & 0xFF;
 
+        // Real-time messages may appear anywhere, even inside other messages. Return them right away without
+        // touching the message being collected.
+        if (ub >= 0xF8) {
+            return Optional.of(createMidiMessageFromBytes(new byte[]{b}, 1));
+        }
+
         // Start of SysEx
         if (ub == 0xF0) {
             inSysEx = true;
+            runningStatus = -1;
             buffer.reset();
             buffer.write(b);
             return Optional.empty();
@@ -53,9 +60,9 @@ public class MidiMessageParser {
 
         // Handle SysEx accumulation
         if (inSysEx) {
-            buffer.write(b);
             if (ub == 0xF7) {
                 // End of SysEx
+                buffer.write(b);
                 inSysEx = false;
                 byte[] sysex = buffer.toByteArray();
                 buffer.reset();
@@ -63,38 +70,49 @@ public class MidiMessageParser {
                 message.setMessage(sysex, sysex.length);
                 return Optional.of(message);
             }
-            return Optional.empty();
+
+            if (ub < 0x80) {
+                buffer.write(b);
+                return Optional.empty();
+            }
+
+            // Any other status byte ends an incomplete SysEx (e.g. the end byte got lost). Drop it and continue
+            // with the new message.
+            inSysEx = false;
+            buffer.reset();
         }
 
         // Status byte (>= 0x80)
         if (ub >= 0x80) {
             buffer.reset();
             buffer.write(b);
-            runningStatus = ub;
-            int expectedLength = getMidiMessageLength(ub);
 
-            // If 1-byte message (e.g. real-time), return now
-            if (expectedLength == 1) {
-                MidiMessage msg = createMidiMessageFromBytes(new byte[]{(byte) ub}, 1);
+            // Only channel messages set a running status. System common messages cancel it.
+            runningStatus = ub < 0xF0 ? ub : -1;
+
+            // If 1-byte message (e.g. tune request), return now
+            if (getMidiMessageLength(ub) == 1) {
                 buffer.reset();
-                return Optional.of(msg);
+                return Optional.of(createMidiMessageFromBytes(new byte[]{b}, 1));
             }
 
             return Optional.empty(); // wait for data bytes
         }
 
-        // Data byte, possibly part of running status
-        if (runningStatus >= 0x80) {
-            buffer.write(b);
-            int expectedLength = getMidiMessageLength(runningStatus);
-
-            if (buffer.size() == expectedLength) {
-                byte[] msgBytes = buffer.toByteArray();
-                msgBytes[0] = (byte) runningStatus; // ensure proper status
-                buffer.reset();
-                MidiMessage msg = createMidiMessageFromBytes(msgBytes, expectedLength);
-                return Optional.of(msg);
+        // Data byte without a status byte in the buffer -> continue with the running status, if there is one
+        if (buffer.size() == 0) {
+            if (runningStatus < 0) {
+                return Optional.empty();
             }
+            buffer.write(runningStatus);
+        }
+
+        buffer.write(b);
+        byte[] msgBytes = buffer.toByteArray();
+
+        if (msgBytes.length == getMidiMessageLength(msgBytes[0] & 0xFF)) {
+            buffer.reset();
+            return Optional.of(createMidiMessageFromBytes(msgBytes, msgBytes.length));
         }
 
         return Optional.empty(); // still accumulating
