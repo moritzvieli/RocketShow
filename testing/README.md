@@ -29,48 +29,72 @@ testing/
 
 ### Today
 
-The unit tests live in `src/test/java` and cover pure logic:
+CI (`.github/workflows/ci.yml`) runs on every push and on pull requests from forks:
 
+- **Unit tests:** `./mvnw -B test` without the web app build.
+- **Build with web app:** `./mvnw -B package -DskipTests`. The built `rocketshow.jar` is kept as a build artifact for
+  14 days, so every commit has a jar to put on a test unit.
+
+The unit tests live in `src/test/java`:
+
+- Update state machine across reboots (`DefaultUpdateServiceTest`)
+- MIDI input parsing and MIDI mapping (`MidiMessageParserTest`, `MidiMapperTest`)
+- Backup and restore, broken backups (`DefaultBackupServiceTest`)
+- Files of earlier releases (`CompatibilityTest`, see below)
 - Lighting designer presets (`PresetMirrorTest`, `PresetIntensityTest`, `PresetStepsTest`)
 - Scheduler (`DefaultSchedulerServiceTest`, `ScheduledCompositionSerializationTest`)
 - MIDI timecode (`MidiTimecodeMessageFactoryTest`)
 - Health service (`DefaultHealthServiceTest`) and EEPROM version parsing (`DefaultEepromServiceTest`)
 - Spring context start (`RocketShowApplicationTests`)
 
-Run them without the web app build:
+Run them locally without the web app build:
 
 ```shell
 ./mvnw test -Dskip.npm -Dskip.installnodenpm
 ```
 
-All 61 tests pass without any hardware attached, in about a minute. There is no CI yet.
+All 100 tests pass without any hardware attached, in about a minute.
+
+### Files of earlier releases
+
+`CompatibilityTest` loads every file in `src/test/resources/compat/<version>/` with the current classes:
+`settings.xml`, `session.xml`, `update.xml`, `compositions/*.xml` and `sets/*.xml`. Loading is strict: an element the
+current classes don't read fails the test, because its content would be lost on the next save. Elements that are
+dropped on purpose are listed in the test, with the reason.
+
+So far it only has the example compositions of 2.4.1 and 3.0.0 and the default settings and session of 3.0.0. Real
+files with real content catch much more.
 
 ### TODO
 
-- [ ] Add a GitHub Actions workflow that runs `./mvnw -B test` on every push and pull request to `develop` and
-  `master`.
-- [ ] Build the web app in CI as well (`npm run prod` in `src/main/webapp`), so frontend build breakage is caught.
-- [ ] Test the update state machine in `DefaultUpdateService` with `RaucService`, `RebootService` and `HealthService`
-  mocked. A bug here can leave units in the field stuck or report a failed update as successful. Cases:
-  - [ ] Healthy first boot in the new slot: slot is marked good, state is `FINISHED` without error.
-  - [ ] Unhealthy first boot in the new slot: state is `FALLING_BACK`, device reboots.
-  - [ ] Watchdog fell back to the original slot: state is `FINISHED` with an error, nothing is marked good
-    (currently broken, see [Known issues](#8-known-issues-to-confirm)).
-  - [ ] Booted after `FALLING_BACK`: error "Update failed. Reverted original state.".
-  - [ ] Interrupted during `UPDATING`: error, no endless wait.
-  - [ ] `rauc install` fails: error, no reboot.
-  - [ ] `rauc status` returns no slot: the app still starts.
-  - [ ] Remote version equals current version: error, nothing installed.
-- [ ] Old-file compatibility: keep the files written by each released version in `src/test/resources/compat/<version>/`
-  (`settings.xml`, `session.xml`, `update.xml`, compositions, sets, designer projects) and test that the current build
-  loads all of them. Every update depends on this.
-- [ ] `MidiMessageParser`: serial byte streams split across reads, running status, realtime bytes between messages,
-  SysEx.
-- [ ] MIDI routing and mapping (`MidiRouter`, `MidiMapper`, `ChannelMapping`).
+- [x] GitHub Actions workflow running the unit tests on every push and pull request.
+- [x] Build the web app in CI as well, so frontend build breakage is caught.
+- [x] Test the update state machine in `DefaultUpdateService` with `RaucService`, `RebootService` and `HealthService`
+  mocked. Cases:
+  - [x] Healthy or degraded first boot in the new slot: slot is marked good, state is `FINISHED` without error.
+  - [x] Unhealthy first boot in the new slot: state is `FALLING_BACK`, device reboots.
+  - [x] Fell back to the original slot: state is `FINISHED` with an error, nothing is marked good.
+  - [x] Booted after `FALLING_BACK`: error "Update failed. Reverted original state.".
+  - [x] Interrupted during `UPDATING`: error, no endless wait.
+  - [x] `rauc install` fails: error, no reboot.
+  - [x] `rauc status` returns no slot: the app still starts.
+  - [x] Remote version equals current version: error, nothing installed.
+  - [x] Update started by an older release, which did not store the original slot: finishes in the new slot, reports
+    the fallback in the original slot.
+- [x] Compatibility test for files of earlier releases.
+  - [ ] Add real files of every release, e.g. from backups of our own units: settings with several audio buses,
+    remote devices, routings and API keys, sets, sessions, compositions with several buses, MIDI routings and video.
+  - [ ] Cover designer projects and fixtures.
+  - [ ] Cover the settings migrations through `DefaultSettingsService`. Today a test can't set its settings directory.
+- [x] `MidiMessageParser`: messages split across reads, running status, real-time bytes inside messages and SysEx,
+  SysEx without end byte.
+- [x] MIDI mapping (`MidiMapper`, `ChannelMapping`), for the cases with a clear expected result (see
+  [Known issues](#8-known-issues)).
+- [ ] MIDI routing (`MidiRouter`).
 - [ ] `CompositionPipelineBuilder`: expected pipeline for a set of compositions and audio bus settings (channel
-  mapping, mix matrix).
-- [ ] Backup and restore round trip (`BackupService`).
-- [ ] Make sure `RocketShowApplicationTests` keeps passing without GStreamer, OLA or GPIO hardware.
+  mapping, mix matrix). It creates real GStreamer elements, so the CI runner needs GStreamer and its plugins.
+- [x] Backup and restore round trip, broken and incomplete backups (`BackupService`).
+- [x] `RocketShowApplicationTests` passes without GStreamer, OLA or GPIO hardware, checked by CI.
 
 ## 2. Device self-test
 
@@ -414,18 +438,44 @@ These are the paths that brick units in the field, and nobody runs them by hand.
 - [ ] Automate steps 3-5 on the controller.
 - [ ] Publish the test report with the release.
 
-## 8. Known issues to confirm
+## 8. Known issues
 
-Found by reading the code. Not yet confirmed on hardware. Each one gets a unit test or rig test before it is fixed.
+Found by reading the code. Each one gets a unit test or rig test before it is fixed.
 
-- [ ] **A failed update is reported as successful.** `UpdateState.originalRaucSlot` is read in the
-  `DefaultUpdateService` constructor but never set. When the watchdog falls back to the original slot, the code takes
-  the "booted into the new slot" branch, marks the old slot good and reports `FINISHED` without an error, while the
-  device still runs the old version. Fix: set the original slot in `update()` before installing the bundle.
-- [ ] **The app does not start if `rauc status` returns no slot after an update.** `getCurrentSlot()` returns `null`
-  on failure, and the `DefaultUpdateService` constructor calls `.equals()` on it.
+### Fixed
+
+- [x] **A failed update was reported as successful.** `UpdateState.originalRaucSlot` was read after the reboot but
+  never set. When the device fell back to the original slot, the update was reported as `FINISHED` without an error
+  and the old slot was marked good. Now the original slot is stored and the running version is compared as well
+  (`DefaultUpdateServiceTest`). Updates that start from a release before the fix can still be misreported when they
+  fall back, because the old release runs that check.
+- [x] **The app did not start if `rauc status` returned no slot after an update.** (`DefaultUpdateServiceTest`)
+- [x] **Serial MIDI input lost or garbled messages.** Messages with running status were garbled or dropped, a
+  real-time byte (e.g. MIDI clock) inside a message replaced the message, and a SysEx without its end byte swallowed
+  all following input (`MidiMessageParserTest`).
+- [x] **Restoring a broken backup deleted all data.** An incomplete or broken upload deleted the settings,
+  compositions, sets and media, unpacked nothing and rebooted. Now the backup is checked first and the restore is
+  refused with an error (`DefaultBackupServiceTest`).
+
+### Open
+
 - [ ] **The post-update check only proves the app starts.** `finishUpdate()` accepts `OK` and `DEGRADED`. A build
   that boots but cannot play audio is marked good. Decide which checks must pass before `mark-good`.
 - [ ] **A hung synchronized unit blocks the main unit.** `RemoteDevice` only sets a connect timeout, no read timeout.
   If a remote unit accepts the connection but never answers, `DefaultPlayerService.play()` waits the full 60 seconds
   while holding the player lock, so stop and pause wait as well. Scenario 6.4 "Freeze unit B" confirms it.
+- [ ] **2.x compositions lose their audio bus.** They assign audio files to a bus by name (`<outputBus>`), 3.0 only
+  reads the bus UUID. All audio files of such a composition play on the first bus, e.g. a click track meant for the
+  in-ear monitors on the PA. This affects restoring a 2.x backup on 3.0. Decide whether 2.x files are supported. If
+  so, map the bus name to its UUID when loading.
+- [ ] **Settings without a version end up at version 3, while the current version is 2.** `migrateFromOldSettings()`
+  runs `migrateToVersion2()` and then `migrateToVersion3()`. Every following start rejects the settings as "saved with
+  a newer version" and logs an error. They are kept anyway, because they are set before the check.
+  `migrateToVersion3()` also creates the MIDI note triggers for the old MIDI controls but never adds them to the
+  settings, so the old controls are lost. Only settings of very old releases are affected.
+- [ ] **The global MIDI channel and note offsets seem to have no effect.** The MIDI settings page offers them, but
+  routing mappings default their offsets to `0` instead of "not set", so the offsets of the parent mapping are never
+  used. Routings of the live MIDI input don't use the global mapping at all. `overrideParent` is checked on the parent
+  instead of the mapping itself. Decide the intended behavior, then test it in `MidiMapperTest`.
+- [ ] **Creating a backup ignores the exit code of `tar`.** A failed backup (e.g. disk full) is offered for download
+  as if it was complete.
