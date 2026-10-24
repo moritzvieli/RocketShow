@@ -25,6 +25,11 @@ Use this command to skip tests and NPM build:
 For frequent builds, you might want to comment out the frontend-maven-plugin in the POM and make use of the Maven
 parameter `-DskipTests`.
 
+### Testing
+
+See [testing/README.md](./testing/README.md) for the test strategy (unit tests, device self-test and the
+hardware-in-the-loop rig) and the open todos.
+
 ### Local Angular frontend development
 
 While developing the web app, it might be convenient to start an Angular server:
